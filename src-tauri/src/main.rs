@@ -39,6 +39,49 @@ use tauri::{
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
+// Security validation functions
+fn validate_file_path(path: &str) -> Result<(), String> {
+    // Check for path traversal attempts
+    if path.contains("..") || path.contains("\\..") || path.contains("../") {
+        return Err("Path traversal attempt detected".to_string());
+    }
+
+    // Check for absolute paths that might access system files
+    if path.starts_with("/etc") || path.starts_with("/sys") || path.starts_with("/proc") {
+        return Err("Access to system directories is not allowed".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if path.starts_with("C:\\Windows") || path.starts_with("C:\\System32") {
+            return Err("Access to system directories is not allowed".to_string());
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_filename(filename: &str) -> Result<(), String> {
+    // Check for dangerous characters
+    let dangerous_chars = ['<', '>', ':', '"', '|', '?', '*', '\0'];
+    if filename.chars().any(|c| dangerous_chars.contains(&c)) {
+        return Err("Invalid characters in filename".to_string());
+    }
+
+    // Check for reserved names on Windows
+    #[cfg(target_os = "windows")]
+    {
+        let reserved_names = ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4",
+                             "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2",
+                             "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"];
+        if reserved_names.contains(&filename.to_uppercase().as_str()) {
+            return Err("Reserved filename".to_string());
+        }
+    }
+
+    Ok(())
+}
+
 struct AppState {
     geth: Mutex<GethProcess>,
     downloader: Arc<GethDownloader>,
@@ -853,6 +896,10 @@ async fn upload_file_to_network(
     file_path: String,
     file_name: String,
 ) -> Result<String, String> {
+    // Validate inputs for security
+    validate_file_path(&file_path)?;
+    validate_filename(&file_name)?;
+
     let ft = {
         let ft_guard = state.file_transfer.lock().await;
         ft_guard.as_ref().cloned()
@@ -904,6 +951,9 @@ async fn download_file_from_network(
     file_hash: String,
     output_path: String,
 ) -> Result<(), String> {
+    // Validate inputs for security
+    validate_file_path(&output_path)?;
+
     let ft = {
         let ft_guard = state.file_transfer.lock().await;
         ft_guard.as_ref().cloned()
@@ -985,6 +1035,9 @@ async fn upload_file_data_to_network(
 
 #[tauri::command]
 async fn show_in_folder(path: String) -> Result<(), String> {
+    // Validate path for security
+    validate_file_path(&path)?;
+
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("explorer")

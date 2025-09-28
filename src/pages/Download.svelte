@@ -89,19 +89,26 @@
       document.head.appendChild(style)
     }
     
-    notification.innerHTML = `
-      <span>${message}</span>
-      <button onclick="this.parentElement.remove()" style="
-        background: none;
-        border: none;
-        color: white;
-        font-size: 18px;
-        cursor: pointer;
-        padding: 0;
-        margin-left: 8px;
-        opacity: 0.8;
-      ">×</button>
-    `
+    // Create elements safely without innerHTML
+    const messageSpan = document.createElement('span');
+    messageSpan.textContent = message;
+
+    const closeButton = document.createElement('button');
+    closeButton.textContent = '×';
+    closeButton.style.cssText = `
+      background: none;
+      border: none;
+      color: white;
+      font-size: 18px;
+      cursor: pointer;
+      padding: 0;
+      margin-left: 8px;
+      opacity: 0.8;
+    `;
+    closeButton.addEventListener('click', () => notification.remove());
+
+    notification.appendChild(messageSpan);
+    notification.appendChild(closeButton);
     
     document.body.appendChild(notification)
     currentNotification = notification

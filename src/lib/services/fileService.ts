@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { downloadDir, join } from '@tauri-apps/api/path';
+import { validateFilename, validateFilePath, validateFileHash, defaultRateLimiter } from '../security';
 
 /**
  * A service class to interact with the file transfer and DHT commands
@@ -28,6 +29,22 @@ export class FileService {
    * @returns The hash of the uploaded file.
    */
   async uploadFile(file: File): Promise<string> {
+    // Security validations
+    const filenameValidation = validateFilename(file.name);
+    if (!filenameValidation.valid) {
+      throw new Error(`Invalid filename: ${filenameValidation.error}`);
+    }
+
+    // Rate limiting
+    if (!defaultRateLimiter.isAllowed('upload')) {
+      throw new Error('Upload rate limit exceeded. Please try again later.');
+    }
+
+    // File size validation (100MB limit)
+    if (file.size > 100 * 1024 * 1024) {
+      throw new Error('File size too large (max 100MB)');
+    }
+
     const buffer = await file.arrayBuffer();
     const bytes = new Uint8Array(buffer);
 
@@ -49,6 +66,22 @@ export class FileService {
    * @returns The hash of the uploaded file.
    */
   async uploadFileFromPath(filePath: string, fileName: string): Promise<string> {
+    // Security validations
+    const pathValidation = validateFilePath(filePath);
+    if (!pathValidation.valid) {
+      throw new Error(`Invalid file path: ${pathValidation.error}`);
+    }
+
+    const filenameValidation = validateFilename(fileName);
+    if (!filenameValidation.valid) {
+      throw new Error(`Invalid filename: ${filenameValidation.error}`);
+    }
+
+    // Rate limiting
+    if (!defaultRateLimiter.isAllowed('upload')) {
+      throw new Error('Upload rate limit exceeded. Please try again later.');
+    }
+
     // Calls 'upload_file_to_network' on the backend.
     const hash = await invoke<string>('upload_file_to_network', {
       filePath,
@@ -65,6 +98,21 @@ export class FileService {
    * @returns The full path to the downloaded file.
    */
   async downloadFile(hash: string, fileName: string): Promise<string> {
+    // Security validations
+    if (!validateFileHash(hash)) {
+      throw new Error('Invalid file hash format');
+    }
+
+    const filenameValidation = validateFilename(fileName);
+    if (!filenameValidation.valid) {
+      throw new Error(`Invalid filename: ${filenameValidation.error}`);
+    }
+
+    // Rate limiting
+    if (!defaultRateLimiter.isAllowed('download')) {
+      throw new Error('Download rate limit exceeded. Please try again later.');
+    }
+
     const downloadPath = await downloadDir();
     const outputPath = await join(downloadPath, fileName);
 
@@ -84,6 +132,12 @@ export class FileService {
    * @param path The full path to the file.
    */
   async showInFolder(path: string): Promise<void> {
+    // Security validation
+    const pathValidation = validateFilePath(path);
+    if (!pathValidation.valid) {
+      throw new Error(`Invalid file path: ${pathValidation.error}`);
+    }
+
     await invoke('show_in_folder', { path });
   }
 

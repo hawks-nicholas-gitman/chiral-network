@@ -16,8 +16,11 @@ let app: any = null;
 
 if (!target) {
   console.error("Could not find app element!");
-  document.body.innerHTML =
-    '<h1 style="color: red;">Error: Could not find app element!</h1>';
+  // Create error element safely without innerHTML
+  const errorEl = document.createElement('h1');
+  errorEl.style.color = 'red';
+  errorEl.textContent = 'Error: Could not find app element!';
+  document.body.appendChild(errorEl);
 } else {
   try {
     app = mount(App, {
@@ -26,7 +29,11 @@ if (!target) {
     console.log("App mounted successfully");
   } catch (error) {
     console.error("Error mounting app:", error);
-    document.body.innerHTML = `<h1 style="color: red;">Error: ${error}</h1>`;
+    // Create error element safely without innerHTML
+    const errorEl = document.createElement('h1');
+    errorEl.style.color = 'red';
+    errorEl.textContent = `Error: ${String(error)}`;
+    document.body.appendChild(errorEl);
   }
 }
 
