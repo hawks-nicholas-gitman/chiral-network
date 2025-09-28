@@ -37,7 +37,7 @@ use std::process::Command;
 use std::{
     io::{BufRead, BufReader},
     sync::Arc,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use sysinfo::{Components, System, MINIMUM_CPU_UPDATE_INTERVAL};
 use systemstat::{Platform, System as SystemStat};
@@ -709,20 +709,23 @@ async fn get_dht_events(state: State<'_, AppState>) -> Result<Vec<String>, Strin
 #[tauri::command]
 fn get_cpu_temperature() -> Option<f32> {
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::SystemTime;
     static LAST_UPDATE: AtomicU64 = AtomicU64::new(0);
 
-    let now = Instant::now();
-    let now_secs = now.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+    let now = SystemTime::now();
+    let now_millis = now.duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or(Duration::from_secs(0))
+        .as_millis() as u64;
     let last_update = LAST_UPDATE.load(Ordering::Relaxed);
 
     if last_update > 0 {
-        let last_instant = std::time::UNIX_EPOCH + Duration::from_secs(last_update);
-        if now.duration_since(last_instant).unwrap_or_default() < MINIMUM_CPU_UPDATE_INTERVAL {
+        let elapsed_since_last = now_millis.saturating_sub(last_update);
+        if Duration::from_millis(elapsed_since_last) < MINIMUM_CPU_UPDATE_INTERVAL {
             return None;
         }
     }
 
-    LAST_UPDATE.store(now_secs, Ordering::Relaxed);
+    LAST_UPDATE.store(now_millis, Ordering::Relaxed);
 
     // Try sysinfo first (works on some platforms including M1 macs and some Windows)
     let mut sys = System::new_all();
