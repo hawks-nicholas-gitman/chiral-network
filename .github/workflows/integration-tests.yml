@@ -1,0 +1,363 @@
+name: Integration Tests
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+        components: rustfmt, clippy
+
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          src-tauri/target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libglib2.0-dev \
+          pkg-config \
+          build-essential \
+          libgtk-3-dev \
+          curl \
+          libssl-dev \
+          libsoup-3.0 \
+          javascriptcoregtk-4.1 \
+          webkit2gtk-4.1 \
+          libayatana-appindicator3-1
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22.12'
+        cache: 'npm'
+
+    - name: Install Node.js dependencies
+      run: npm ci
+
+    - name: Build frontend
+      run: npm run build
+
+    - name: Run unit tests
+      working-directory: src-tauri
+      run: cargo test --lib --verbose
+      env:
+        RUST_LOG: debug
+
+    - name: Run basic integration tests
+      working-directory: src-tauri
+      run: cargo test --test integration_basic --verbose -- --nocapture
+      env:
+        RUST_LOG: info
+        RUST_BACKTRACE: 1
+      timeout-minutes: 10
+
+    - name: Run network integration tests
+      working-directory: src-tauri
+      run: cargo test --test integration_network --verbose -- --nocapture
+      env:
+        RUST_LOG: info
+        RUST_BACKTRACE: 1
+      timeout-minutes: 10
+
+    - name: Run file transfer integration tests
+      working-directory: src-tauri
+      run: cargo test --test integration_file_transfer --verbose -- --nocapture
+      env:
+        RUST_LOG: info
+        RUST_BACKTRACE: 1
+      timeout-minutes: 10
+
+    - name: Generate test report
+      if: always()
+      run: |
+        echo "## Integration Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "- Basic integration tests: ${{ job.steps.run-basic-integration-tests.outcome }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Network integration tests: ${{ job.steps.run-network-integration-tests.outcome }}" >> $GITHUB_STEP_SUMMARY
+        echo "- File transfer integration tests: ${{ job.steps.run-file-transfer-integration-tests.outcome }}" >> $GITHUB_STEP_SUMMARY
+
+  multi-platform-tests:
+    name: Multi-Platform Integration Tests
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        rust: [stable]
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: ${{ matrix.rust }}
+        override: true
+
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          src-tauri/target/
+        key: ${{ runner.os }}-${{ matrix.rust }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    # Linux dependencies
+    - name: Install Linux dependencies
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libglib2.0-dev \
+          pkg-config \
+          build-essential \
+          libgtk-3-dev \
+          curl \
+          libssl-dev \
+          libsoup-3.0 \
+          javascriptcoregtk-4.1 \
+          webkit2gtk-4.1 \
+          libayatana-appindicator3-1
+
+    # Windows dependencies
+    - name: Install Windows dependencies
+      if: matrix.os == 'windows-latest'
+      run: |
+        # Windows dependencies are typically handled by vcpkg or pre-installed
+
+    # macOS dependencies
+    - name: Install macOS dependencies
+      if: matrix.os == 'macos-latest'
+      run: |
+        # macOS dependencies
+        brew install pkg-config
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22.12'
+        cache: 'npm'
+
+    - name: Install Node.js dependencies
+      run: npm ci
+
+    - name: Build frontend
+      run: npm run build
+
+    # Run a subset of integration tests on each platform
+    - name: Run core integration tests
+      working-directory: src-tauri
+      run: cargo test --test integration_basic test_single_node_startup test_file_upload_and_local_storage --verbose
+      env:
+        RUST_LOG: info
+        RUST_BACKTRACE: 1
+      timeout-minutes: 5
+
+  stress-tests:
+    name: Stress Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          src-tauri/target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libglib2.0-dev \
+          pkg-config \
+          build-essential \
+          libgtk-3-dev \
+          curl \
+          libssl-dev
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22.12'
+        cache: 'npm'
+
+    - name: Install Node.js dependencies
+      run: npm ci
+
+    - name: Build frontend
+      run: npm run build
+
+    - name: Run stress tests
+      working-directory: src-tauri
+      run: |
+        # Run specific stress-oriented tests
+        cargo test --test integration_network test_concurrent_file_publishing --verbose -- --nocapture
+        cargo test --test integration_file_transfer test_concurrent_file_uploads test_large_file_handling --verbose -- --nocapture
+      env:
+        RUST_LOG: info
+        RUST_BACKTRACE: 1
+      timeout-minutes: 30
+
+  security-tests:
+    name: Security Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+        components: clippy
+
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          src-tauri/target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libglib2.0-dev pkg-config build-essential
+
+    - name: Security audit
+      working-directory: src-tauri
+      run: |
+        cargo install cargo-audit
+        cargo audit
+
+    - name: Clippy security lints
+      working-directory: src-tauri
+      run: cargo clippy --all-targets --all-features -- -D warnings -D clippy::suspicious -D clippy::security
+
+    - name: Check for hardcoded secrets
+      run: |
+        # Basic check for potential secrets
+        if grep -r "password\s*=\s*\"" src-tauri/src/ || \
+           grep -r "secret\s*=\s*\"" src-tauri/src/ || \
+           grep -r "key\s*=\s*\".*[a-zA-Z0-9]{20,}" src-tauri/src/; then
+          echo "Potential hardcoded secrets found!"
+          exit 1
+        fi
+
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          src-tauri/target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libglib2.0-dev \
+          pkg-config \
+          build-essential \
+          libssl-dev
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22.12'
+        cache: 'npm'
+
+    - name: Install Node.js dependencies
+      run: npm ci
+
+    - name: Build frontend
+      run: npm run build
+
+    - name: Run performance tests
+      working-directory: src-tauri
+      run: |
+        # Run performance-focused tests
+        cargo test --test integration_file_transfer test_file_discovery_performance --verbose -- --nocapture
+        cargo test --test integration_network test_dht_routing_table_formation --verbose -- --nocapture
+      env:
+        RUST_LOG: info
+        RUST_BACKTRACE: 1
+      timeout-minutes: 20

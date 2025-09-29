@@ -61,6 +61,21 @@ tokio-socks = "0.5"
 
 [dev-dependencies]
 tempfile = "3.8"
+tracing-test = "0.2"
+tokio-test = "0.4"
+criterion = "0.5"
+
+[[test]]
+name = "integration_basic"
+path = "tests/integration_basic.rs"
+
+[[test]]
+name = "integration_network"
+path = "tests/integration_network.rs"
+
+[[test]]
+name = "integration_file_transfer"
+path = "tests/integration_file_transfer.rs"
 
 [features]
 default = ["custom-protocol"]
